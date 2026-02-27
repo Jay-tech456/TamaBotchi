@@ -5,11 +5,13 @@ FastAPI server exposing the AI agent functionality
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 from datetime import datetime
 import uvicorn
 import logging
 import traceback
+import subprocess
+import json as _json
 
 logger = logging.getLogger(__name__)
 
@@ -380,6 +382,217 @@ async def pet_summarize_all():
         summaries[cid] = summary
 
     return {"summaries": summaries, "count": len(summaries)}
+
+
+# ── Calendar / Reminders / Chat Endpoints ─────────────────────────────
+
+
+class ScheduleEventRequest(BaseModel):
+    title: str
+    start_iso: str
+    end_iso: str
+    notes: Optional[str] = ""
+    calendar_name: Optional[str] = "Calendar"
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[List[Dict[str, str]]] = []
+
+
+def _run_jxa(script: str) -> str:
+    """
+    Execute a JXA (JavaScript for Automation) script via osascript.
+
+    Args:
+        script: JXA script content to execute
+
+    Returns:
+        stdout output from the script as a stripped string
+
+    Raises:
+        RuntimeError: If osascript exits with a non-zero return code
+        subprocess.TimeoutExpired: If the script runs longer than 15 seconds
+    """
+    result = subprocess.run(
+        ['osascript', '-l', 'JavaScript', '-e', script],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"JXA script failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+@app.get('/pet/calendar/events')
+async def pet_calendar_events(days: int = 14) -> Dict[str, Any]:
+    """
+    Fetch upcoming calendar events from macOS Calendar for the next N days.
+
+    Requires Calendar app permission granted to the terminal / Electron process.
+    """
+    script = f"""
+var app = Application('Calendar');
+var now = new Date();
+var end = new Date(now.getTime() + {days} * 24 * 60 * 60 * 1000);
+var result = [];
+app.calendars().forEach(function(cal) {{
+  try {{
+    cal.events().forEach(function(evt) {{
+      try {{
+        var startDate = evt.startDate();
+        if (startDate >= now && startDate <= end) {{
+          result.push({{
+            title: evt.summary(),
+            start: startDate.toISOString(),
+            end: evt.endDate().toISOString(),
+            calendar: cal.name(),
+            notes: (function() {{ try {{ return evt.description() || ''; }} catch(e) {{ return ''; }} }})()
+          }});
+        }}
+      }} catch(e) {{}}
+    }});
+  }} catch(e) {{}}
+}});
+result.sort(function(a,b) {{ return new Date(a.start) - new Date(b.start); }});
+JSON.stringify(result);
+"""
+    try:
+        raw = _run_jxa(script)
+        events: List[Dict[str, Any]] = _json.loads(raw) if raw else []
+        return {"events": events, "count": len(events)}
+    except Exception as e:
+        logger.error("Failed to fetch calendar events: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Calendar access failed. Make sure Calendar permission is granted: {e}",
+        )
+
+
+@app.get('/pet/calendar/reminders')
+async def pet_calendar_reminders() -> Dict[str, Any]:
+    """
+    Fetch all incomplete reminders from macOS Reminders.
+
+    Requires Reminders app permission granted to the terminal / Electron process.
+    """
+    script = """
+var app = Application('Reminders');
+var result = [];
+app.lists().forEach(function(list) {
+  try {
+    list.reminders.whose({completed: false})().forEach(function(r) {
+      try {
+        var due = null;
+        try { var d = r.dueDate(); if (d) due = d.toISOString(); } catch(e) {}
+        result.push({
+          name: r.name(),
+          due: due,
+          list: list.name(),
+          body: (function() { try { return r.body() || ''; } catch(e) { return ''; } })()
+        });
+      } catch(e) {}
+    });
+  } catch(e) {}
+});
+result.sort(function(a,b) {
+  if (!a.due && !b.due) return 0;
+  if (!a.due) return 1;
+  if (!b.due) return -1;
+  return new Date(a.due) - new Date(b.due);
+});
+JSON.stringify(result);
+"""
+    try:
+        raw = _run_jxa(script)
+        reminders: List[Dict[str, Any]] = _json.loads(raw) if raw else []
+        return {"reminders": reminders, "count": len(reminders)}
+    except Exception as e:
+        logger.error("Failed to fetch reminders: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Reminders access failed. Make sure Reminders permission is granted: {e}",
+        )
+
+
+@app.post('/pet/calendar/schedule')
+async def pet_calendar_schedule(request: ScheduleEventRequest) -> Dict[str, Any]:
+    """
+    Create a new event in macOS Calendar.
+
+    Args (body):
+        title: Event name
+        start_iso: ISO-8601 start datetime string (e.g. 2026-02-28T14:00:00)
+        end_iso: ISO-8601 end datetime string
+        notes: Optional description
+        calendar_name: Name of the calendar to add the event to (default: Calendar)
+    """
+    safe_title = request.title.replace('\\', '\\\\').replace('"', '\\"')
+    safe_notes = (request.notes or "").replace('\\', '\\\\').replace('"', '\\"')
+    safe_cal = request.calendar_name.replace('\\', '\\\\').replace('"', '\\"')
+
+    script = f"""
+var app = Application('Calendar');
+var cals = app.calendars();
+var targetCal = cals[0];
+for (var i = 0; i < cals.length; i++) {{
+  if (cals[i].name() === "{safe_cal}") {{
+    targetCal = cals[i];
+    break;
+  }}
+}}
+var evt = app.Event({{
+  summary: "{safe_title}",
+  startDate: new Date("{request.start_iso}"),
+  endDate: new Date("{request.end_iso}"),
+  description: "{safe_notes}"
+}});
+targetCal.events.push(evt);
+JSON.stringify({{success: true}});
+"""
+    try:
+        raw = _run_jxa(script)
+        result: Dict[str, Any] = _json.loads(raw)
+        return result
+    except Exception as e:
+        logger.error("Failed to schedule calendar event: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create calendar event: {e}",
+        )
+
+
+@app.post('/pet/chat')
+async def pet_chat(request: ChatRequest) -> Dict[str, str]:
+    """
+    Chat with TamaBotchi — a Claude-powered personal assistant.
+
+    Args (body):
+        message: The user's latest message
+        history: Optional prior messages as [{role, content}] for context
+    """
+    from anthropic import Anthropic
+    client = Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+
+    messages: List[Dict[str, str]] = list(request.history or [])
+    messages.append({"role": "user", "content": request.message})
+
+    resp = client.messages.create(
+        model=Config.CLAUDE_MODEL,
+        max_tokens=512,
+        system=(
+            "You are TamaBotchi, Jesh's personal AI assistant. "
+            "You are a friendly, warm bunny companion who lives on Jesh's desktop. "
+            "You help Jesh with scheduling, reminders, messages, and general questions. "
+            "Keep responses concise and conversational. "
+            "Do not use markdown formatting, bullet points, or headers — "
+            "respond in natural, flowing sentences as if chatting."
+        ),
+        messages=messages,
+    )
+    reply: str = resp.content[0].text.strip()
+    return {"reply": reply}
 
 
 if __name__ == '__main__':

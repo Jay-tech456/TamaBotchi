@@ -85,6 +85,15 @@
     filter: drop-shadow(0 1px 0 #e8ddd4);
 }
 
+/* -- Intro greeting variant ------------------- */
+.bunny-speech-bubble--intro {
+    color: #764ba2;
+    border-color: #c4a8e0;
+    font-size: 12px;
+    white-space: nowrap;
+    animation: bubble-pop 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55) both;
+}
+
 /* ============================================
    Keyframe Animations
    ============================================ */

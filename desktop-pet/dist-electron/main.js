@@ -41,7 +41,7 @@ let tray = null;
 const PET_WIDTH = 120;
 const PET_HEIGHT = 140;
 const SUMMARY_WIDTH = 420;
-const SUMMARY_HEIGHT = 560;
+const SUMMARY_HEIGHT = 620;
 function createPetWindow() {
     const display = electron_1.screen.getPrimaryDisplay();
     const { width: screenW, height: screenH } = display.workAreaSize;

@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import ConversationCard from './ConversationCard'
+import CalendarView from './CalendarView'
+import ChatView from './ChatView'
 import { fetchAllConversations, markAllRead, summarizeAll } from '../middleware/api'
 import '../styles/SummaryPanel.css'
+
+type PanelTab = 'messages' | 'calendar' | 'chat'
 
 interface Message {
     from: string
@@ -30,6 +34,7 @@ interface Conversation {
 }
 
 function SummaryPanel() {
+    const [activeTab, setActiveTab] = useState<PanelTab>('messages')
     const [conversations, setConversations] = useState<Conversation[]>([])
     const [unreadCount, setUnreadCount] = useState(0)
     const [loading, setLoading] = useState(true)
@@ -82,58 +87,95 @@ function SummaryPanel() {
             <div className="summary-panel__header">
                 <div className="summary-panel__title-row">
                     <div className="summary-panel__icon">🐰</div>
-                    <h2 className="summary-panel__title">TamaBotchi Inbox</h2>
-                    {unreadCount > 0 && (
-                        <span className="summary-panel__badge">{unreadCount}</span>
-                    )}
+                    <h2 className="summary-panel__title">TamaBotchi</h2>
                 </div>
                 <button className="summary-panel__close" onClick={handleClose}>✕</button>
             </div>
 
-            <div className="summary-panel__actions">
+            <div className="summary-panel__tabs">
                 <button
-                    className="summary-panel__btn summary-panel__btn--secondary"
-                    onClick={handleMarkAllRead}
-                    disabled={unreadCount === 0}
+                    className={`summary-panel__tab ${activeTab === 'messages' ? 'summary-panel__tab--active' : ''}`}
+                    onClick={() => setActiveTab('messages')}
                 >
-                    Mark All Read
+                    Messages
+                    {unreadCount > 0 && (
+                        <span className="summary-panel__tab-badge">{unreadCount}</span>
+                    )}
                 </button>
                 <button
-                    className="summary-panel__btn summary-panel__btn--primary"
-                    onClick={handleSummarizeAll}
-                    disabled={summarizingAll || conversations.length === 0}
+                    className={`summary-panel__tab ${activeTab === 'calendar' ? 'summary-panel__tab--active' : ''}`}
+                    onClick={() => setActiveTab('calendar')}
                 >
-                    {summarizingAll ? 'Summarizing...' : 'Summarize All'}
+                    Calendar
+                </button>
+                <button
+                    className={`summary-panel__tab ${activeTab === 'chat' ? 'summary-panel__tab--active' : ''}`}
+                    onClick={() => setActiveTab('chat')}
+                >
+                    Chat
                 </button>
             </div>
 
-            <div className="summary-panel__list">
-                {loading && (
-                    <div className="summary-panel__empty">
-                        <div className="summary-panel__loader" />
-                        <p>Loading conversations...</p>
+            {activeTab === 'messages' && (
+                <>
+                    <div className="summary-panel__actions">
+                        <button
+                            className="summary-panel__btn summary-panel__btn--secondary"
+                            onClick={handleMarkAllRead}
+                            disabled={unreadCount === 0}
+                        >
+                            Mark All Read
+                        </button>
+                        <button
+                            className="summary-panel__btn summary-panel__btn--primary"
+                            onClick={handleSummarizeAll}
+                            disabled={summarizingAll || conversations.length === 0}
+                        >
+                            {summarizingAll ? 'Summarizing...' : 'Summarize All'}
+                        </button>
                     </div>
-                )}
 
-                {!loading && conversations.length === 0 && (
-                    <div className="summary-panel__empty">
-                        <div className="summary-panel__empty-icon">💤</div>
-                        <p>No conversations yet</p>
-                        <span>When someone messages you while on Do Not Disturb, the bunny will let you know!</span>
+                    <div className="summary-panel__list">
+                        {loading && (
+                            <div className="summary-panel__empty">
+                                <div className="summary-panel__loader" />
+                                <p>Loading conversations...</p>
+                            </div>
+                        )}
+
+                        {!loading && conversations.length === 0 && (
+                            <div className="summary-panel__empty">
+                                <div className="summary-panel__empty-icon">💤</div>
+                                <p>No conversations yet</p>
+                                <span>When someone messages you, TamaBotchi will let you know!</span>
+                            </div>
+                        )}
+
+                        {conversations.map((convo) => (
+                            <ConversationCard
+                                key={convo.conversation_id}
+                                conversation={convo}
+                                onRead={loadConversations}
+                            />
+                        ))}
                     </div>
-                )}
+                </>
+            )}
 
-                {conversations.map((convo) => (
-                    <ConversationCard
-                        key={convo.conversation_id}
-                        conversation={convo}
-                        onRead={loadConversations}
-                    />
-                ))}
-            </div>
+            {activeTab === 'calendar' && (
+                <div className="summary-panel__tab-content">
+                    <CalendarView />
+                </div>
+            )}
+
+            {activeTab === 'chat' && (
+                <div className="summary-panel__tab-content summary-panel__tab-content--chat">
+                    <ChatView />
+                </div>
+            )}
 
             <div className="summary-panel__footer">
-                <span>Powered by TamaBotchi AI Agent</span>
+                <span>TamaBotchi — Jesh's personal AI assistant</span>
             </div>
         </div>
     )

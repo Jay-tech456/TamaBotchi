@@ -8,6 +8,12 @@ function BunnyPet() {
     const [mood, setMood] = useState<'idle' | 'excited' | 'sleeping'>('idle')
     const [blinking, setBlinking] = useState(false)
     const [bouncing, setBouncing] = useState(false)
+    const [showIntro, setShowIntro] = useState(true)
+
+    useEffect(() => {
+        const timer = setTimeout(() => setShowIntro(false), 4500)
+        return () => clearTimeout(timer)
+    }, [])
 
     const pollUnread = useCallback(async () => {
         try {
@@ -47,18 +53,24 @@ function BunnyPet() {
         setTimeout(() => setBouncing(false), 600)
     }
 
+    const speechText = showIntro
+        ? "Hi! I'm TamaBotchi"
+        : mood === 'excited'
+        ? `${unreadCount} new!`
+        : null
+
     return (
         <div className="bunny-container" onClick={handleClick}>
             <NotificationBadge count={unreadCount} />
 
-            {mood === 'excited' && (
-                <div className="bunny-speech-bubble">
-                    <span>{unreadCount} new!</span>
+            {speechText && (
+                <div className={`bunny-speech-bubble ${showIntro ? 'bunny-speech-bubble--intro' : ''}`}>
+                    <span>{speechText}</span>
                 </div>
             )}
 
             <svg
-                className={`bunny-svg ${bouncing ? 'bunny-svg--bounce' : ''} ${mood === 'excited' ? 'bunny-svg--excited' : ''}`}
+                className={`bunny-svg ${bouncing ? 'bunny-svg--bounce' : ''} ${mood === 'excited' && !showIntro ? 'bunny-svg--excited' : ''}`}
                 viewBox="0 0 120 140"
                 width="120"
                 height="140"

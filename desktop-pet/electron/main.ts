@@ -8,7 +8,7 @@ let tray: Tray | null = null
 const PET_WIDTH = 120
 const PET_HEIGHT = 140
 const SUMMARY_WIDTH = 420
-const SUMMARY_HEIGHT = 560
+const SUMMARY_HEIGHT = 620
 
 function createPetWindow() {
     const display = screen.getPrimaryDisplay()

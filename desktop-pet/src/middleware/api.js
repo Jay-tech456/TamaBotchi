@@ -54,4 +54,24 @@ export async function checkHealth() {
     }
 }
 
+export async function fetchCalendarEvents(days = 14) {
+    const response = await api.get('/pet/calendar/events', { params: { days } })
+    return response.data
+}
+
+export async function fetchReminders() {
+    const response = await api.get('/pet/calendar/reminders')
+    return response.data
+}
+
+export async function scheduleEvent(data) {
+    const response = await api.post('/pet/calendar/schedule', data)
+    return response.data
+}
+
+export async function chatWithTamaBotchi(message, history = []) {
+    const response = await api.post('/pet/chat', { message, history })
+    return response.data
+}
+
 export default api
