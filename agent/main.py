@@ -482,18 +482,25 @@ var app = Application('Reminders');
 var result = [];
 app.lists().forEach(function(list) {
   try {
-    list.reminders.whose({completed: false})().forEach(function(r) {
+    var all = list.reminders();
+    for (var i = 0; i < all.length; i++) {
       try {
+        var r = all[i];
+        var done = false;
+        try { done = r.completed(); } catch(e) {}
+        if (done) continue;
         var due = null;
         try { var d = r.dueDate(); if (d) due = d.toISOString(); } catch(e) {}
+        var body = '';
+        try { body = r.body() || ''; } catch(e) {}
         result.push({
           name: r.name(),
           due: due,
           list: list.name(),
-          body: (function() { try { return r.body() || ''; } catch(e) { return ''; } })()
+          body: body
         });
       } catch(e) {}
-    });
+    }
   } catch(e) {}
 });
 result.sort(function(a,b) {
@@ -505,7 +512,15 @@ result.sort(function(a,b) {
 JSON.stringify(result);
 """
     try:
-        raw = _run_jxa(script)
+        result = subprocess.run(
+            ['osascript', '-l', 'JavaScript', '-e', script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"JXA script failed: {result.stderr.strip()}")
+        raw = result.stdout.strip()
         reminders: List[Dict[str, Any]] = _json.loads(raw) if raw else []
         return {"reminders": reminders, "count": len(reminders)}
     except Exception as e:
