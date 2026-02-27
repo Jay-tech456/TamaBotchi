@@ -56,11 +56,16 @@ function CalendarView() {
                 fetchCalendarEvents(14),
                 fetchReminders(),
             ])
+            // Backend returns permission_error instead of throwing 500
+            const permErr = eventsData.permission_error || remindersData.permission_error
+            if (permErr) {
+                setError(permErr)
+            }
             setEvents(eventsData.events || [])
             setReminders(remindersData.reminders || [])
         } catch {
             setError(
-                'Could not access Calendar or Reminders. Go to System Settings > Privacy & Security > Calendar (and Reminders) and grant access to Terminal / this app.'
+                'Could not reach the TamaBotchi agent. Make sure it is running on port 5000.'
             )
         }
         setLoading(false)
@@ -134,12 +139,14 @@ function CalendarView() {
         )
     }
 
-    if (error) {
+    if (error && events.length === 0 && reminders.length === 0) {
         return (
             <div className="calendar-view calendar-view--error">
                 <div className="calendar-view__error-icon">🔒</div>
                 <p className="calendar-view__error-title">Permission Required</p>
-                <p className="calendar-view__error-msg">{error}</p>
+                <p className="calendar-view__error-msg">
+                    Go to <strong>System Settings &gt; Privacy &amp; Security &gt; Calendar</strong> (and Reminders) and grant access to <strong>Terminal</strong>.
+                </p>
                 <button className="calendar-view__retry-btn" onClick={loadData}>
                     Retry
                 </button>

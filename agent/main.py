@@ -419,28 +419,35 @@ class ChatRequest(BaseModel):
     history: Optional[List[Dict[str, str]]] = []
 
 
-def _run_jxa(script: str) -> str:
+def _run_jxa(script: str, timeout: int = 20) -> str:
     """
     Execute a JXA (JavaScript for Automation) script via osascript.
 
     Args:
         script: JXA script content to execute
+        timeout: Seconds before killing the process (default 20)
 
     Returns:
         stdout output from the script as a stripped string
 
     Raises:
         RuntimeError: If osascript exits with a non-zero return code
-        subprocess.TimeoutExpired: If the script runs longer than 15 seconds
+        subprocess.TimeoutExpired: If the script runs longer than timeout seconds
     """
     result = subprocess.run(
         ['osascript', '-l', 'JavaScript', '-e', script],
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=timeout,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"JXA script failed: {result.stderr.strip()}")
+        # JXA errors are often written to stdout, not stderr
+        error_detail = (
+            result.stderr.strip()
+            or result.stdout.strip()
+            or f"osascript exited with code {result.returncode}"
+        )
+        raise RuntimeError(f"JXA script failed: {error_detail}")
     return result.stdout.strip()
 
 
@@ -478,15 +485,15 @@ result.sort(function(a,b) {{ return new Date(a.start) - new Date(b.start); }});
 JSON.stringify(result);
 """
     try:
-        raw = _run_jxa(script)
+        raw = _run_jxa(script, timeout=20)
         events: List[Dict[str, Any]] = _json.loads(raw) if raw else []
         return {"events": events, "count": len(events)}
+    except subprocess.TimeoutExpired:
+        logger.error("Calendar events script timed out")
+        return {"events": [], "count": 0, "permission_error": "Calendar access timed out. Grant Calendar permission to Terminal in System Settings > Privacy & Security > Calendar."}
     except Exception as e:
         logger.error("Failed to fetch calendar events: %s", e)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Calendar access failed. Make sure Calendar permission is granted: {e}",
-        )
+        return {"events": [], "count": 0, "permission_error": f"Calendar access failed: {e}. Grant permission in System Settings > Privacy & Security > Calendar."}
 
 
 @app.get('/pet/calendar/reminders')
@@ -531,23 +538,15 @@ result.sort(function(a,b) {
 JSON.stringify(result);
 """
     try:
-        result = subprocess.run(
-            ['osascript', '-l', 'JavaScript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"JXA script failed: {result.stderr.strip()}")
-        raw = result.stdout.strip()
+        raw = _run_jxa(script, timeout=30)
         reminders: List[Dict[str, Any]] = _json.loads(raw) if raw else []
         return {"reminders": reminders, "count": len(reminders)}
+    except subprocess.TimeoutExpired:
+        logger.error("Reminders script timed out")
+        return {"reminders": [], "count": 0, "permission_error": "Reminders access timed out. Grant Reminders permission to Terminal in System Settings > Privacy & Security > Reminders."}
     except Exception as e:
         logger.error("Failed to fetch reminders: %s", e)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Reminders access failed. Make sure Reminders permission is granted: {e}",
-        )
+        return {"reminders": [], "count": 0, "permission_error": f"Reminders access failed: {e}. Grant permission in System Settings > Privacy & Security > Reminders."}
 
 
 @app.post('/pet/calendar/schedule')
