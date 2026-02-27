@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from config import Config
 from core.agent import TamaBotchiAgent
 from tools.mcp_client import MCPClient
+import conversation_store
 
 # Validate config on startup
 Config.validate()
@@ -135,6 +136,13 @@ async def incoming_message(user_id: str, request: IncomingMessageRequest):
     This is called when someone responds to the agent
     """
     try:
+        conversation_store.log_message(
+            sender=request.sender_id,
+            message=request.message,
+            is_from_agent=False,
+            conversation_id=request.conversation_id,
+        )
+
         agent = get_or_create_agent(user_id)
 
         result = agent.handle_incoming_message(
@@ -142,6 +150,14 @@ async def incoming_message(user_id: str, request: IncomingMessageRequest):
             request.message,
             request.conversation_id
         )
+
+        if result.get("response"):
+            conversation_store.log_message(
+                sender=request.sender_id,
+                message=result["response"],
+                is_from_agent=True,
+                conversation_id=request.conversation_id,
+            )
 
         return result
 
@@ -256,6 +272,114 @@ async def get_conversation(user_id: str, conversation_id: str, limit: int = 50):
         'messages': messages,
         'count': len(messages)
     }
+
+
+# ── Desktop Pet Endpoints ──────────────────────────────────────────────
+
+@app.get('/pet/conversations')
+async def pet_get_conversations():
+    """Return all tracked conversations for the desktop pet."""
+    convos = conversation_store.get_all_conversations()
+    return {
+        "conversations": list(convos.values()),
+        "unread_count": conversation_store.get_unread_count(),
+    }
+
+
+@app.get('/pet/conversations/unread')
+async def pet_get_unread():
+    """Return only unread conversations."""
+    convos = conversation_store.get_unread_conversations()
+    return {
+        "conversations": list(convos.values()),
+        "unread_count": len(convos),
+    }
+
+
+@app.get('/pet/conversations/unread/count')
+async def pet_unread_count():
+    """Quick count of unread conversations for the notification badge."""
+    return {"unread_count": conversation_store.get_unread_count()}
+
+
+@app.post('/pet/conversations/{conversation_id}/read')
+async def pet_mark_read(conversation_id: str):
+    """Mark a conversation as read."""
+    conversation_store.mark_read(conversation_id)
+    return {"success": True}
+
+
+@app.post('/pet/conversations/read-all')
+async def pet_mark_all_read():
+    """Mark all conversations as read."""
+    conversation_store.mark_all_read()
+    return {"success": True}
+
+
+@app.post('/pet/conversations/{conversation_id}/summarize')
+async def pet_summarize_conversation(conversation_id: str):
+    """Use Claude to generate a comprehensive summary for a single conversation."""
+    convos = conversation_store.get_all_conversations()
+    convo = convos.get(conversation_id)
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    messages_text = "\n".join(
+        f"{'[AGENT]' if m['from'] == 'agent' else '[' + m['from'] + ']'}: {m['text']}"
+        for m in convo.get("messages", [])
+    )
+
+    from anthropic import Anthropic
+    client = Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+    resp = client.messages.create(
+        model=Config.CLAUDE_MODEL,
+        max_tokens=1024,
+        system="You are a concise assistant. Produce a structured JSON summary of this iMessage conversation. Return ONLY valid JSON with these keys: who (string - who contacted), intent (string - what do they want), requirements (array of strings - specific requirements/asks), urgency (low/medium/high), sentiment (positive/neutral/negative), action_items (array of strings), one_liner (string - 1 sentence summary).",
+        messages=[{"role": "user", "content": f"Summarize this conversation:\n\n{messages_text}"}],
+    )
+
+    import json as _json
+    raw = resp.content[0].text.strip()
+    try:
+        summary = _json.loads(raw)
+    except _json.JSONDecodeError:
+        summary = {"one_liner": raw, "who": convo["sender"], "intent": "unknown", "requirements": [], "urgency": "medium", "sentiment": "neutral", "action_items": []}
+
+    conversation_store.update_summary(conversation_id, summary)
+    return {"summary": summary}
+
+
+@app.post('/pet/summarize-all')
+async def pet_summarize_all():
+    """Generate summaries for every conversation that does not yet have one."""
+    convos = conversation_store.get_all_conversations()
+    summaries = {}
+    for cid, convo in convos.items():
+        if convo.get("summary"):
+            summaries[cid] = convo["summary"]
+            continue
+        messages_text = "\n".join(
+            f"{'[AGENT]' if m['from'] == 'agent' else '[' + m['from'] + ']'}: {m['text']}"
+            for m in convo.get("messages", [])
+        )
+        from anthropic import Anthropic
+        client = Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+        resp = client.messages.create(
+            model=Config.CLAUDE_MODEL,
+            max_tokens=1024,
+            system="You are a concise assistant. Produce a structured JSON summary of this iMessage conversation. Return ONLY valid JSON with these keys: who (string - who contacted), intent (string - what do they want), requirements (array of strings - specific requirements/asks), urgency (low/medium/high), sentiment (positive/neutral/negative), action_items (array of strings), one_liner (string - 1 sentence summary).",
+            messages=[{"role": "user", "content": f"Summarize this conversation:\n\n{messages_text}"}],
+        )
+        import json as _json
+        raw = resp.content[0].text.strip()
+        try:
+            summary = _json.loads(raw)
+        except _json.JSONDecodeError:
+            summary = {"one_liner": raw, "who": convo["sender"], "intent": "unknown", "requirements": [], "urgency": "medium", "sentiment": "neutral", "action_items": []}
+        conversation_store.update_summary(cid, summary)
+        summaries[cid] = summary
+
+    return {"summaries": summaries, "count": len(summaries)}
 
 
 if __name__ == '__main__':

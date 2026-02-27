@@ -34,6 +34,11 @@ ENV/
 agent/credentials/
 *.json
 !requirements.txt
+!desktop-pet/package.json
+!desktop-pet/package-lock.json
+!desktop-pet/tsconfig.json
+!desktop-pet/tsconfig.node.json
+!desktop-pet/tsconfig.electron.json
 
 # IDE
 .vscode/
