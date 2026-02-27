@@ -12,6 +12,7 @@ import logging
 import traceback
 import subprocess
 import json as _json
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,24 @@ from config import Config
 from core.agent import TamaBotchiAgent
 from tools.mcp_client import MCPClient
 import conversation_store
+
+def _strip_json_fences(text: str) -> str:
+    """
+    Remove markdown code fences that Claude sometimes wraps JSON in.
+
+    Handles: ```json ... ``` and ``` ... ```
+
+    Args:
+        text: Raw text from Claude response
+
+    Returns:
+        Plain JSON string with fences removed
+    """
+    text = text.strip()
+    text = re.sub(r'^```(?:json)?\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+    return text.strip()
+
 
 # Validate config on startup
 Config.validate()
@@ -340,8 +359,7 @@ async def pet_summarize_conversation(conversation_id: str):
         messages=[{"role": "user", "content": f"Summarize this conversation:\n\n{messages_text}"}],
     )
 
-    import json as _json
-    raw = resp.content[0].text.strip()
+    raw = _strip_json_fences(resp.content[0].text)
     try:
         summary = _json.loads(raw)
     except _json.JSONDecodeError:
@@ -357,8 +375,10 @@ async def pet_summarize_all():
     convos = conversation_store.get_all_conversations()
     summaries = {}
     for cid, convo in convos.items():
-        if convo.get("summary"):
-            summaries[cid] = convo["summary"]
+        existing = convo.get("summary")
+        # Skip only if there is a valid summary (not a broken parse where intent is "unknown")
+        if existing and existing.get("intent") != "unknown":
+            summaries[cid] = existing
             continue
         messages_text = "\n".join(
             f"{'[AGENT]' if m['from'] == 'agent' else '[' + m['from'] + ']'}: {m['text']}"
@@ -372,8 +392,7 @@ async def pet_summarize_all():
             system="You are a concise assistant. Produce a structured JSON summary of this iMessage conversation. Return ONLY valid JSON with these keys: who (string - who contacted), intent (string - what do they want), requirements (array of strings - specific requirements/asks), urgency (low/medium/high), sentiment (positive/neutral/negative), action_items (array of strings), one_liner (string - 1 sentence summary).",
             messages=[{"role": "user", "content": f"Summarize this conversation:\n\n{messages_text}"}],
         )
-        import json as _json
-        raw = resp.content[0].text.strip()
+        raw = _strip_json_fences(resp.content[0].text)
         try:
             summary = _json.loads(raw)
         except _json.JSONDecodeError:
