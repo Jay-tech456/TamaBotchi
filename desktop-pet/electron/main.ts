@@ -5,8 +5,8 @@ let petWindow: BrowserWindow | null = null
 let summaryWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
-const PET_WIDTH = 120
-const PET_HEIGHT = 140
+const PET_WIDTH = 220
+const PET_HEIGHT = 380
 const SUMMARY_WIDTH = 420
 const SUMMARY_HEIGHT = 620
 

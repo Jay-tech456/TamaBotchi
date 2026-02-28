@@ -38,8 +38,8 @@ const path = __importStar(require("path"));
 let petWindow = null;
 let summaryWindow = null;
 let tray = null;
-const PET_WIDTH = 120;
-const PET_HEIGHT = 140;
+const PET_WIDTH = 220;
+const PET_HEIGHT = 380;
 const SUMMARY_WIDTH = 420;
 const SUMMARY_HEIGHT = 620;
 function createPetWindow() {
